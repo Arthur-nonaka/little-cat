@@ -44,11 +44,17 @@ button:hover{
   transform:translateY(-2px);
   box-shadow:0 6px 12px rgba(0,0,0,0.3);
 }
+#gameContainer{
+  display:flex;
+  justify-content:center;
+  align-items:flex-start;
+  gap:20px;
+  margin-top:20px;
+}
 canvas{
-  background:#1a1a2e;
+  background:#ffffff;
   border:4px solid #fff;
   border-radius:15px;
-  margin-top:20px;
   box-shadow:0 8px 16px rgba(0,0,0,0.4);
 }
 #hud{
@@ -64,6 +70,72 @@ canvas{
   margin:10px;
   text-shadow:2px 2px 4px rgba(0,0,0,0.5);
 }
+#logContainer{
+  background:rgba(0,0,0,0.3);
+  border-radius:15px;
+  padding:15px;
+  width:300px;
+  height:600px;
+  box-shadow:0 8px 16px rgba(0,0,0,0.4);
+}
+#logTitle{
+  font-size:1.2em;
+  font-weight:bold;
+  margin-bottom:10px;
+  text-align:center;
+  color:#FFD700;
+}
+#logList{
+  height:540px;
+  overflow-y:auto;
+  background:rgba(0,0,0,0.2);
+  border-radius:10px;
+  padding:10px;
+}
+#logList::-webkit-scrollbar{
+  width:8px;
+}
+#logList::-webkit-scrollbar-track{
+  background:rgba(0,0,0,0.2);
+  border-radius:10px;
+}
+#logList::-webkit-scrollbar-thumb{
+  background:rgba(255,255,255,0.3);
+  border-radius:10px;
+}
+#logList::-webkit-scrollbar-thumb:hover{
+  background:rgba(255,255,255,0.5);
+}
+.logEntry{
+  padding:8px;
+  margin-bottom:5px;
+  border-radius:8px;
+  font-size:0.9em;
+  background:rgba(255,255,255,0.1);
+  animation:slideIn 0.3s ease-out;
+}
+@keyframes slideIn{
+  from{
+    opacity:0;
+    transform:translateX(20px);
+  }
+  to{
+    opacity:1;
+    transform:translateX(0);
+  }
+}
+.logEntry.success{
+  border-left:3px solid #32CD32;
+}
+.logEntry.error{
+  border-left:3px solid #FF6347;
+}
+.logEntry.info{
+  border-left:3px solid #87CEEB;
+}
+.logEntry.warning{
+  border-left:3px solid #FFA500;
+}
 .info{
   background:rgba(255,255,255,0.1);
   padding:10px;
@@ -78,12 +150,27 @@ canvas{
 <div>
   <input id="name" placeholder="Seu nome"/>
   <input id="room" placeholder="Nome da sala" value="sala1"/>
+  <div style="margin: 10px;">
+    <label style="font-size: 16px; margin-right: 10px;">🎨 Escolha sua Skin:</label>
+    <select id="skinSelect" style="padding: 8px 15px; border-radius: 15px; border: none; font-size: 14px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
+      <option value="1">Skin 1</option>
+      <option value="2">Skin 2</option>
+      <option value="3">Skin 3</option>
+    </select>
+  </div>
   <button id="join">🎮 Entrar no Jogo</button>
 </div>
 <div id="hud" style="display:none">
   <p id="status">Aguardando jogadores...</p>
+  <button id="ready" style="display:none; margin-top:10px;">✅ Pronto!</button>
 </div>
-<canvas id="game" width="800" height="500"></canvas>
+<div id="gameContainer">
+  <canvas id="game" width="1000" height="600"></canvas>
+  <div id="logContainer" style="display:none">
+    <div id="logTitle">📋 Log de Eventos</div>
+    <div id="logList"></div>
+  </div>
+</div>
 <script src="client.js"></script>
 </body>
 </html>

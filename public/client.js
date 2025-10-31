@@ -3,9 +3,13 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const nameInput = document.getElementById("name");
 const roomInput = document.getElementById("room");
+const skinSelect = document.getElementById("skinSelect");
 const joinBtn = document.getElementById("join");
+const readyBtn = document.getElementById("ready");
 const statusEl = document.getElementById("status");
 const hud = document.getElementById("hud");
+const logContainer = document.getElementById("logContainer");
+const logList = document.getElementById("logList");
 
 let playerId;
 let players = [];
@@ -14,6 +18,8 @@ let animFrame = 0;
 let animTime = 0;
 let gameState = "waiting";
 let playerName = "";
+let playerSkin = "1";
+let isReady = false;
 let playerAnimations = {}; // {playerId: {anim: "idle", time: 0}}
 let currentSequence = [];
 let sequenceIndex = 0;
@@ -30,32 +36,85 @@ const animConfig = {
     right:{src:"/sprites/maestro/right.png",frameW:64,frameH:64,frames:1,speed:120},
   },
   player: {
-    idle:{src:"/sprites/player/idle.png",frameW:32,frameH:32,frames:9,speed:200},
-    up:{src:"/sprites/player/up.png",frameW:96,frameH:96,frames:1,speed:120},
-    down:{src:"/sprites/player/down.png",frameW:32,frameH:32,frames:4,speed:120},
-    left:{src:"/sprites/player/left.png",frameW:96,frameH:96,frames:1,speed:120},
-    right:{src:"/sprites/player/right.png",frameW:96,frameH:96,frames:1,speed:120},
+    "1": {
+      idle:{src:"/sprites/player/1/idle.png",frameW:32,frameH:32,frames:9,speed:200},
+      up:{src:"/sprites/player/1/up.png",frameW:96,frameH:96,frames:1,speed:120},
+      down:{src:"/sprites/player/1/down.png",frameW:32,frameH:32,frames:4,speed:120},
+      left:{src:"/sprites/player/1/left.png",frameW:96,frameH:96,frames:1,speed:120},
+      right:{src:"/sprites/player/1/right.png",frameW:96,frameH:96,frames:1,speed:120},
+    },
+    "2": {
+      idle:{src:"/sprites/player/2/idle.png",frameW:32,frameH:32,frames:5,speed:200},
+      up:{src:"/sprites/player/2/up.png",frameW:32,frameH:32,frames:1,speed:120},
+      down:{src:"/sprites/player/2/down.png",frameW:32,frameH:32,frames:7,speed:120},
+      left:{src:"/sprites/player/2/left.png",frameW:32,frameH:32,frames:1,speed:120},
+      right:{src:"/sprites/player/2/right.png",frameW:32,frameH:32,frames:1,speed:120},
+    },
+    "3": {
+      idle:{src:"/sprites/player/3/idle.png",frameW:32,frameH:32,frames:5,speed:200},
+      up:{src:"/sprites/player/3/up.png",frameW:32,frameH:32,frames:1,speed:120},
+      down:{src:"/sprites/player/3/down.png",frameW:32,frameH:32,frames:7,speed:120},
+      left:{src:"/sprites/player/3/left.png",frameW:32,frameH:32,frames:1,speed:120},
+      right:{src:"/sprites/player/3/right.png",frameW:32,frameH:32,frames:1,speed:120},
+    }
   }
 };
 
-const sprites = {maestro:{}, player:{}};
-for(const type in animConfig){
-  for(const k in animConfig[type]){ 
+const sprites = {maestro:{}, player:{"1":{}, "2":{}, "3":{}}};
+// Load maestro sprites
+for(const k in animConfig.maestro){ 
+  const img=new Image(); 
+  img.src=animConfig.maestro[k].src; 
+  sprites.maestro[k]=img;
+}
+// Load player sprites for each skin
+for(const skin in animConfig.player){
+  for(const k in animConfig.player[skin]){ 
     const img=new Image(); 
-    img.src=animConfig[type][k].src; 
-    sprites[type][k]=img;
+    img.src=animConfig.player[skin][k].src; 
+    sprites.player[skin][k]=img;
+  }
+}
+
+function addLog(message, type = "info") {
+  const entry = document.createElement("div");
+  entry.className = `logEntry ${type}`;
+  const time = new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+  entry.innerHTML = `<small>${time}</small><br>${message}`;
+  logList.insertBefore(entry, logList.firstChild);
+  
+  // Limit to 50 entries
+  while(logList.children.length > 50) {
+    logList.removeChild(logList.lastChild);
   }
 }
 
 joinBtn.onclick = ()=>{
   playerName = nameInput.value.trim() || "Player";
+  playerSkin = skinSelect.value;
   const room = roomInput.value.trim() || "sala1";
-  ws.send(JSON.stringify({type:"join",room,name:playerName}));
-  ws.send(JSON.stringify({type:"ready"}));
+  ws.send(JSON.stringify({type:"join",room,name:playerName,skin:playerSkin}));
   hud.style.display="block";
+  logContainer.style.display="block";
+  readyBtn.style.display="inline-block";
   joinBtn.style.display="none";
   nameInput.style.display="none";
   roomInput.style.display="none";
+  skinSelect.style.display="none";
+  skinSelect.previousElementSibling.style.display="none";
+  statusEl.textContent="Clique em 'Pronto' quando estiver pronto!";
+  addLog(`${playerName} entrou na sala ${room}`, "info");
+};
+
+readyBtn.onclick = ()=>{
+  if(!isReady) {
+    ws.send(JSON.stringify({type:"ready"}));
+    isReady = true;
+    readyBtn.textContent="⏳ Aguardando outros jogadores...";
+    readyBtn.disabled = true;
+    readyBtn.style.opacity = "0.5";
+    readyBtn.style.cursor = "not-allowed";
+  }
 };
 
 document.addEventListener("keydown", e=>{
@@ -68,17 +127,58 @@ ws.onmessage = e=>{
   const data = JSON.parse(e.data);
   
   if(data.type==="updatePlayers") {
+    const oldCount = players.length;
     players=data.players;
+    
+    // Log player join/leave
+    if(players.length > oldCount) {
+      const newPlayer = players[players.length - 1];
+      if(newPlayer.name !== playerName) {
+        addLog(`${newPlayer.name} entrou no jogo`, "info");
+      }
+    } else if(players.length < oldCount) {
+      addLog(`Um jogador saiu do jogo`, "warning");
+    }
+    
+    // Update status with ready count
+    if(gameState === "waiting") {
+      const readyCount = players.filter(p => p.ready).length;
+      const totalCount = players.length;
+      if(!isReady) {
+        statusEl.textContent=`Jogadores prontos: ${readyCount}/${totalCount}`;
+      } else {
+        statusEl.textContent=`Aguardando... ${readyCount}/${totalCount} prontos`;
+      }
+    }
   }
   
   if(data.type==="countdown") {
-    statusEl.textContent="🎮 O jogo começa em 3 segundos...";
+    gameState = "playing";
+    readyBtn.style.display="none";
+    addLog("🎮 Jogo iniciando!", "info");
+    let count = 3;
+    statusEl.textContent="🎮 " + count;
     statusEl.style.color="#FFD700";
+    statusEl.style.fontSize="3em";
+    
+    const countInterval = setInterval(() => {
+      count--;
+      if (count > 0) {
+        statusEl.textContent="🎮 " + count;
+      } else {
+        statusEl.textContent="🎮 GO!";
+        setTimeout(() => {
+          statusEl.style.fontSize="1.5em";
+        }, 500);
+        clearInterval(countInterval);
+      }
+    }, 1000);
   }
   
   if(data.type==="newTurn") {
     statusEl.textContent="🎵 Rodada "+data.turn+" - Observe o Maestro!";
     statusEl.style.color="#87CEEB";
+    addLog(`🎵 Rodada ${data.turn} começou`, "info");
   }
   
   if(data.type==="maestroMove"){ 
@@ -94,39 +194,46 @@ ws.onmessage = e=>{
       index: data.index
     });
     
-    setTimeout(()=>maestroAnim="idle",500);
+    setTimeout(()=>maestroAnim="idle",400);
+  }
+  
+  if(data.type==="playerCountdown") {
+    if (data.count > 0) {
+      statusEl.textContent="🎯 " + data.count;
+      statusEl.style.color="#FFD700";
+      statusEl.style.fontSize="3em";
+    } else {
+      statusEl.textContent="🎯 GO!";
+      statusEl.style.color="#90EE90";
+      
+      // Show first move when GO appears
+      if(data.firstMove) {
+        maestroAnim = data.firstMove;
+        setTimeout(() => maestroAnim = "idle", 400);
+      }
+      
+      setTimeout(() => {
+        statusEl.textContent="🎯 Siga o ritmo do Maestro!";
+        statusEl.style.fontSize="1.5em";
+      }, 400);
+    }
   }
   
   if(data.type==="playerTurn") {
     currentSequence = data.sequence;
     sequenceIndex = 0;
     showingSequence = false;
-    statusEl.textContent="🎯 Todos jogam juntos! Repita a sequência no ritmo!";
+    statusEl.textContent="🎯 Prepare-se...";
     statusEl.style.color="#90EE90";
-    
-    // Start showing the sequence again with timing indicators
-    let idx = 0;
-    const timingWindow = data.timingWindow || 1000;
-    const interval = setInterval(() => {
-      if (idx < currentSequence.length) {
-        // Show timing circle for this move
-        timingIndicators.push({
-          time: Date.now(),
-          dir: currentSequence[idx],
-          index: idx,
-          isPlayerTurn: true
-        });
-        idx++;
-      } else {
-        clearInterval(interval);
-      }
-    }, timingWindow / currentSequence.length);
   }
   
   if(data.type==="playerMove") {
     const emoji = data.correct ? "✅" : "❌";
-    statusEl.textContent=emoji+" "+data.name+" jogou "+data.dir;
-    statusEl.style.color = data.correct ? "#32CD32" : "#FF6347";
+    const dirEmoji = {up:"⬆️", down:"⬇️", left:"⬅️", right:"➡️"}[data.dir];
+    const logType = data.correct ? "success" : "error";
+    const action = data.correct ? "acertou" : "errou";
+    
+    addLog(`${emoji} ${data.name} ${action} ${dirEmoji}`, logType);
     
     // Animar sprite do jogador
     if(!playerAnimations[data.id]) {
@@ -139,32 +246,34 @@ ws.onmessage = e=>{
   if(data.type==="playerDied") {
     statusEl.textContent="💀 "+data.name+" perdeu todas as vidas!";
     statusEl.style.color="#FF4444";
+    addLog(`💀 ${data.name} foi eliminado`, "error");
   }
   
   if(data.type==="roundComplete") {
     statusEl.textContent="🎉 Rodada "+data.turn+" completa! Próxima rodada...";
     statusEl.style.color="#FFD700";
+    addLog(`🎉 Rodada ${data.turn} completa!`, "success");
   }
   
   if(data.type==="gameOver") {
     statusEl.textContent="🏁 GAME OVER! Vocês chegaram até a rodada "+data.finalTurn+"!";
     statusEl.style.color="#FF1493";
+    addLog(`🏁 Game Over - Rodada final: ${data.finalTurn}`, "error");
   }
   
   if(data.type==="dead") {
     statusEl.textContent="💀 Você morreu! Continue assistindo...";
     statusEl.style.color="#888";
+    addLog("💀 Você foi eliminado", "error");
   }
   
   if(data.type==="rhythmMiss") {
-    statusEl.textContent="⏰ "+data.name+" perdeu o ritmo! -1 vida";
-    statusEl.style.color="#FFA500";
+    addLog(`⏰ ${data.name} perdeu o ritmo (-1 vida)`, "warning");
   }
   
   if(data.type==="timingError") {
     const msg = data.error === "early" ? "muito cedo ⚡" : "muito tarde 🐌";
-    statusEl.textContent="⏰ "+data.name+" apertou "+msg+"! -1 vida";
-    statusEl.style.color="#FFA500";
+    addLog(`⏰ ${data.name} apertou ${msg} (-1 vida)`, "warning");
   }
   
   if(data.type==="rhythmError") {
@@ -177,14 +286,48 @@ ws.onmessage = e=>{
     // Just a visual warning, no life lost yet
     console.log(data.name + " está fora do ritmo");
   }
+  
+  if(data.type==="winner") {
+    statusEl.textContent="🏆 "+data.name+" VENCEU! Rodada "+data.turn;
+    statusEl.style.color="#FFD700";
+    statusEl.style.fontSize="2em";
+    addLog(`🏆 ${data.name} venceu! (Rodada ${data.turn})`, "success");
+  }
+  
+  if(data.type==="gameReset") {
+    gameState = "waiting";
+    isReady = false;
+    readyBtn.style.display="inline-block";
+    readyBtn.textContent="✅ Pronto!";
+    readyBtn.disabled = false;
+    readyBtn.style.opacity = "1";
+    readyBtn.style.cursor = "pointer";
+    statusEl.textContent="🔄 Novo jogo! Clique em 'Pronto' quando estiver pronto!";
+    statusEl.style.color="#FFD700";
+    statusEl.style.fontSize="1.5em";
+    currentSequence = [];
+    sequenceIndex = 0;
+    showingSequence = false;
+    timingIndicators = [];
+    maestroAnim = "idle";
+    addLog("🔄 Jogo reiniciado - Prepare-se!", "info");
+  }
 };
 
 // Tamanho fixo para renderização (em pixels na tela)
-const RENDER_SIZE = 80; // Todos os sprites serão renderizados com 80x80 pixels
-const MAESTRO_SIZE = 128; // Maestro será maior
+const RENDER_SIZE = 110; // Todos os sprites serão renderizados com 110x110 pixels
+const MAESTRO_SIZE = 150; // Maestro será maior
 
-function drawAnim(type,name,x,y,dt,frameState){
-  const cfg=animConfig[type][name], img=sprites[type][name];
+function drawAnim(type,name,x,y,dt,frameState,skin){
+  let cfg, img;
+  if(type === "player" && skin) {
+    cfg = animConfig.player[skin][name];
+    img = sprites.player[skin][name];
+  } else if(type === "maestro") {
+    cfg = animConfig.maestro[name];
+    img = sprites.maestro[name];
+  }
+  
   if(!cfg||!img||!img.complete) return;
   
   if(!frameState) frameState = {frame:0, time:0};
@@ -249,7 +392,7 @@ function loop(t){
   // Desenhar jogadores em linha na parte inferior
   const playerSpacing = 100;
   const startX = (canvas.width - (players.length - 1) * playerSpacing) / 2;
-  const playerY = canvas.height - 120;
+  const playerY = canvas.height - 180;
   
   players.forEach((p,i)=>{
     const px = startX + i * playerSpacing - (RENDER_SIZE / 2);
@@ -267,10 +410,11 @@ function loop(t){
       playerFrameStates[p.id] = {frame:0, time:0};
     }
     
-    playerFrameStates[p.id] = drawAnim("player",currentAnim,px,py,dt,playerFrameStates[p.id]);
+    const playerSkin = p.skin || "1";
+    playerFrameStates[p.id] = drawAnim("player",currentAnim,px,py,dt,playerFrameStates[p.id],playerSkin);
     
     // Nome do jogador centralizado acima do sprite
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = "#000";
     ctx.font = "bold 14px sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(p.name || "?", px + (RENDER_SIZE / 2), py - 8);

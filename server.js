@@ -30,11 +30,11 @@ wss.on("connection", (ws) => {
     if (data.type === "join") {
       roomId = data.room;
       if (!rooms[roomId]) rooms[roomId] = { players: new Map(), sequence: [], state: "waiting", turn: 0, currentPlayerIndex: 0 };
-      rooms[roomId].players.set(playerId, { id: playerId, ws, lives: 3, ready: false, name: data.name || "Player" });
+      rooms[roomId].players.set(playerId, { id: playerId, ws, lives: 3, ready: false, name: data.name || "Player", skin: data.skin || "1" });
 
       broadcast(roomId, {
         type: "updatePlayers",
-        players: Array.from(rooms[roomId].players.values()).map(p => ({ id: p.id, lives: p.lives, ready: p.ready, name: p.name }))
+        players: Array.from(rooms[roomId].players.values()).map(p => ({ id: p.id, lives: p.lives, ready: p.ready, name: p.name, skin: p.skin }))
       });
     }
 
@@ -46,13 +46,40 @@ wss.on("connection", (ws) => {
 
       broadcast(roomId, {
         type: "updatePlayers",
-        players: Array.from(room.players.values()).map(p => ({ id: p.id, lives: p.lives, ready: p.ready }))
+        players: Array.from(room.players.values()).map(p => ({ id: p.id, lives: p.lives, ready: p.ready, name: p.name, skin: p.skin }))
       });
 
       // Todos prontos
       if ([...room.players.values()].every(p => p.ready) && room.state === "waiting") {
         startGame(roomId);
       }
+    }
+    
+    // Reset room
+    if (data.type === "reset") {
+      const room = rooms[roomId];
+      if (!room) return;
+      
+      // Reset all players
+      for (const [pid, player] of room.players.entries()) {
+        player.lives = 3;
+        player.ready = false;
+      }
+      
+      room.sequence = [];
+      room.turn = 0;
+      room.state = "waiting";
+      room.playerInputs = new Map();
+      room.playerErrors = new Map();
+      
+      broadcast(roomId, {
+        type: "gameReset"
+      });
+      
+      broadcast(roomId, {
+        type: "updatePlayers",
+        players: Array.from(room.players.values()).map(p => ({ id: p.id, lives: p.lives, ready: p.ready, name: p.name }))
+      });
     }
 
     // Player input
@@ -89,8 +116,8 @@ wss.on("connection", (ws) => {
         const timeDifference = timeSinceStart - expectedMoveTime;
         
         // Timing window: allows pressing slightly before or after the maestro move
-        const earlyTolerance = 200; // Can press 200ms before
-        const lateTolerance = 400;  // Can press 400ms after
+        const earlyTolerance = 100; // Can press 100ms before maestro move
+        const lateTolerance = 600;  // Can press 600ms after
         
         if (timeDifference < -earlyTolerance) {
           // Too early
@@ -153,7 +180,7 @@ wss.on("connection", (ws) => {
 
       broadcast(roomId, {
         type: "updatePlayers",
-        players: Array.from(room.players.values()).map(p => ({ id: p.id, lives: p.lives, name: p.name }))
+        players: Array.from(room.players.values()).map(p => ({ id: p.id, lives: p.lives, ready: p.ready, name: p.name, skin: p.skin }))
       });
     }
   });
@@ -163,7 +190,7 @@ wss.on("connection", (ws) => {
       rooms[roomId].players.delete(playerId);
       broadcast(roomId, {
         type: "updatePlayers",
-        players: Array.from(rooms[roomId].players.values()).map(p => ({ id: p.id, lives: p.lives, ready: p.ready }))
+        players: Array.from(rooms[roomId].players.values()).map(p => ({ id: p.id, lives: p.lives, ready: p.ready, name: p.name, skin: p.skin }))
       });
     }
   });
@@ -193,8 +220,8 @@ function maestroShow(roomId) {
   broadcast(roomId, { type: "newTurn", turn: room.turn + 1 });
 
   let i = 0;
-  // Slower timing between moves (800ms base, decreases slower)
-  const baseInterval = Math.max(800 - room.turn * 30, 500);
+  // Slower timing between moves (600ms base, decreases slower)
+  const baseInterval = Math.max(600 - room.turn * 20, 400);
   
   const interval = setInterval(() => {
     const dir = room.sequence[i];
@@ -221,7 +248,7 @@ function startPlayerTurn(roomId) {
   }
   
   // Calculate timing window (increases with sequence length)
-  const baseInterval = Math.max(800 - room.turn * 30, 500);
+  const baseInterval = Math.max(600 - room.turn * 20, 400);
   const timingWindow = baseInterval * room.sequence.length;
   const moveInterval = baseInterval;
   
@@ -231,28 +258,51 @@ function startPlayerTurn(roomId) {
     timingWindow: timingWindow
   });
   
-  // Start rhythm checking timer
-  room.rhythmTimer = {
-    startTime: Date.now(),
-    moveInterval: moveInterval,
-    lastCheckIndex: 0
-  };
+  // Countdown before starting (faster countdown - 700ms each)
+  broadcast(roomId, { type: "playerCountdown", count: 3 });
   
-  // Maestro shows the sequence again while players play
-  let i = 0;
-  const maestroInterval = setInterval(() => {
-    const dir = room.sequence[i];
-    broadcast(roomId, { type: "maestroMove", dir, index: i });
-    i++;
-    if (i >= room.sequence.length) {
-      clearInterval(maestroInterval);
-    }
-  }, baseInterval);
-  
-  // Check for missed inputs after the timing window
   setTimeout(() => {
-    checkMissedInputs(roomId);
-  }, timingWindow + 1000);
+    broadcast(roomId, { type: "playerCountdown", count: 2 });
+  }, 700);
+  
+  setTimeout(() => {
+    broadcast(roomId, { type: "playerCountdown", count: 1 });
+  }, 1400);
+  
+  setTimeout(() => {
+    // Send GO with first move preview
+    broadcast(roomId, { 
+      type: "playerCountdown", 
+      count: 0,
+      firstMove: room.sequence[0] // Send first move to show on GO
+    });
+    
+    // Start rhythm checking timer AFTER countdown AND first move starts
+    setTimeout(() => {
+      room.rhythmTimer = {
+        startTime: Date.now(),
+        moveInterval: moveInterval,
+        lastCheckIndex: 0
+      };
+    }, 100); // Small delay to sync with first maestro move
+    
+    // Maestro shows the sequence again while players play (starting from index 1 to skip first move already shown)
+    let i = 1; // Start from 1 instead of 0
+    const maestroInterval = setInterval(() => {
+      if (i < room.sequence.length) {
+        const dir = room.sequence[i];
+        broadcast(roomId, { type: "maestroMove", dir, index: i });
+        i++;
+      } else {
+        clearInterval(maestroInterval);
+      }
+    }, baseInterval);
+    
+    // Check for missed inputs after the timing window
+    setTimeout(() => {
+      checkMissedInputs(roomId);
+    }, timingWindow + 1000);
+  }, 2100);
 }
 
 function checkMissedInputs(roomId) {
@@ -284,7 +334,21 @@ function checkMissedInputs(roomId) {
   
   // Check if game should continue
   const stillAlive = Array.from(room.players.values()).filter(p => p.lives > 0);
-  if (stillAlive.length === 0) {
+  
+  // If only 1 player alive, reset the game
+  if (stillAlive.length === 1) {
+    const winner = stillAlive[0];
+    broadcast(roomId, {
+      type: "winner",
+      name: winner.name,
+      turn: room.turn
+    });
+    
+    // Reset game after showing winner
+    setTimeout(() => {
+      resetGame(roomId);
+    }, 3000);
+  } else if (stillAlive.length === 0) {
     gameOver(roomId);
   } else {
     nextRound(roomId);
@@ -292,7 +356,33 @@ function checkMissedInputs(roomId) {
   
   broadcast(roomId, {
     type: "updatePlayers",
-    players: Array.from(room.players.values()).map(p => ({ id: p.id, lives: p.lives, name: p.name }))
+    players: Array.from(room.players.values()).map(p => ({ id: p.id, lives: p.lives, name: p.name, skin: p.skin }))
+  });
+}
+
+function resetGame(roomId) {
+  const room = rooms[roomId];
+  if (!room) return;
+  
+  // Reset all players
+  for (const [pid, player] of room.players.entries()) {
+    player.lives = 3;
+    player.ready = false; // Players need to click ready again
+  }
+  
+  room.sequence = [];
+  room.turn = 0;
+  room.state = "waiting";
+  room.playerInputs = new Map();
+  room.playerErrors = new Map();
+  
+  broadcast(roomId, {
+    type: "gameReset"
+  });
+  
+  broadcast(roomId, {
+    type: "updatePlayers",
+    players: Array.from(room.players.values()).map(p => ({ id: p.id, lives: p.lives, ready: p.ready, name: p.name, skin: p.skin }))
   });
 }
 
