@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mestre Mandou - Multiplayer (Firebase)</title>
+  <style>
+    /* CSS simples e responsivo */
+    :root{--bg:#0f172a;--card:#0b1220;--accent:#06b6d4;--muted:#94a3b8}
+    *{box-sizing:border-box;font-family:Inter,system-ui,Segoe UI,Roboto,Arial}
+    body{margin:0;background:linear-gradient(180deg,var(--bg),#071024);color:#e6eef6;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    .app{width:100%;max-width:980px;background:var(--card);border-radius:12px;box-shadow:0 10px 30px rgba(2,6,23,.6);overflow:hidden}
+    header{padding:18px 24px;border-bottom:1px solid rgba(255,255,255,.03);display:flex;gap:12px;align-items:center}
+    h1{margin:0;font-size:18px}
+    .main{display:grid;grid-template-columns:320px 1fr;gap:20px;padding:20px}
+    .panel{background:rgba(255,255,255,.02);padding:14px;border-radius:10px}
+
+    label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+    input[type=text]{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.04);background:transparent;color:inherit}
+    button{display:inline-block;padding:10px 12px;border-radius:8px;border:0;background:var(--accent);color:#042026;cursor:pointer}
+    button.secondary{background:transparent;border:1px solid rgba(255,255,255,.06);color:var(--muted)}
+
+    .players-list{margin-top:10px}
+    .player{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.01);margin-bottom:8px}
+    .player .meta{display:flex;gap:10px;align-items:center}
+    .badge{padding:4px 8px;border-radius:999px;background:rgba(0,0,0,.3);font-size:12px}
+
+    .game-area{display:flex;flex-direction:column;gap:12px}
+    .stage{display:flex;gap:12px;align-items:center}
+    .char{width:72px;height:72px;border-radius:12px;background:rgba(255,255,255,.03);display:flex;align-items:center;justify-content:center;flex-direction:column}
+    .char.dead{opacity:.3}
+
+    .master{font-size:12px;color:var(--muted)}
+    .controls{display:flex;gap:8px;align-items:center}
+
+    .log{height:140px;overflow:auto;padding:8px;background:rgba(0,0,0,.18);border-radius:8px;font-size:13px}
+
+    footer{padding:12px 18px;border-top:1px solid rgba(255,255,255,.02);display:flex;justify-content:space-between;align-items:center}
+
+    @media(max-width:880px){.main{grid-template-columns:1fr;}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Mestre Mandou — Multiplayer (Firebase)</h1>
+      <div style="margin-left:auto;font-size:13px;color:var(--muted)">Controles: W A S D</div>
+    </header>
+
+    <div class="main">
+      <div>
+        <div class="panel">
+          <div id="lobby-ui">
+            <label>Seu nome</label>
+            <input id="name" type="text" placeholder="Ex: Pedro" />
+            <label style="margin-top:10px">Código da sala (criar ou entrar)</label>
+            <input id="room-code" type="text" placeholder="Ex: sala-abc123" />
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button id="create-room">Criar sala</button>
+              <button id="join-room" class="secondary">Entrar na sala</button>
+            </div>
+
+            <div class="players-list" id="players-list" style="margin-top:14px"></div>
+
+            <div style="margin-top:10px;display:flex;gap:8px">
+              <button id="start-game" class="secondary" disabled>Iniciar partida (host)</button>
+              <button id="leave-room" class="secondary" disabled>Sair da sala</button>
+            </div>
+          </div>
+
+          <div id="not-joined" style="display:none;margin-top:10px;color:var(--muted)">Entre em uma sala para ver jogadores</div>
+        </div>
+
+        <div class="panel" style="margin-top:12px">
+          <div style="font-size:13px;color:var(--muted)">Status da sala</div>
+          <div id="room-status" style="margin-top:8px;font-weight:600">-</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:6px">Regras: Máx 4 jogadores (exceto o mestre). Apenas o host inicia. Jogadores não podem deixar a sala enquanto a partida estiver ativa.</div>
+        </div>
+      </div>
+
+      <div class="panel game-area">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-size:13px;color:var(--muted)">Sala:</div>
+            <div id="room-label" style="font-weight:700">Nenhuma</div>
+          </div>
+          <div class="controls">
+            <div id="master-move" class="badge">Mestre: -</div>
+            <div id="timer" class="badge">Tempo: 0s</div>
+            <div id="moves-count" class="badge">Movs: 0</div>
+          </div>
+        </div>
+
+        <div class="stage" id="stage"></div>
+
+        <div class="log" id="log"></div>
+
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button id="restart-game" class="secondary" disabled>Reiniciar partida (host)</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <div style="font-size:13px;color:var(--muted)">Simples — substitua o firebaseConfig no código e ative o Firestore em modo de teste.</div>
+      <div style="font-size:12px;color:var(--muted)">Desenvolvido pra você :)</div>
+    </footer>
+  </div>
+
+  <!-- Firebase (usar SDK 8 para simplicidade neste exemplo) -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+
+  <script>
+  // === REPLACE com suas credenciais do Firebase ===
+const firebaseConfig = {
+  apiKey: "AIzaSyDdEskR3xKFJVViuBaI35m1MpGxNzVsOOM",
+  authDomain: "maestro-d4590.firebaseapp.com",
+  projectId: "maestro-d4590",
+  storageBucket: "maestro-d4590.firebasestorage.app",
+  messagingSenderId: "1056244790409",
+  appId: "1:1056244790409:web:4ee6e4f7359d7e5e790258"
+};
+  // =================================================
+  firebase.initializeApp(firebaseConfig);
+  var db = firebase.firestore();
+
+  // --- util ---
+  function $(id){return document.getElementById(id)}
+  function rndMove(){return ["UP","DOWN","LEFT","RIGHT"][Math.floor(Math.random()*4)]}
+
+  // UI elements
+  const nameInput = $('name');
+  const roomInput = $('room-code');
+  const createBtn = $('create-room');
+  const joinBtn = $('join-room');
+  const leaveBtn = $('leave-room');
+  const startBtn = $('start-game');
+  const restartBtn = $('restart-game');
+  const playersList = $('players-list');
+  const roomLabel = $('room-label');
+  const roomStatus = $('room-status');
+  const stage = $('stage');
+  const logEl = $('log');
+  const masterMoveEl = $('master-move');
+  const timerEl = $('timer');
+  const movesCountEl = $('moves-count');
+
+  // state
+  let currentRoomId = null;
+  let currentPlayerId = null;
+  let isHost = false;
+  let unsubRoom = null;
+  let unsubPlayers = null;
+  let localPlayer = null;
+
+  function log(msg){
+    const t = new Date().toLocaleTimeString();
+    logEl.innerHTML = `<div>[${t}] ${msg}</div>` + logEl.innerHTML;
+  }
+
+  // Create room
+  createBtn.addEventListener('click', async ()=>{
+    const name = nameInput.value.trim();
+    if(!name){alert('Digite seu nome');return}
+    const code = roomInput.value.trim() || 'sala-'+Math.random().toString(36).slice(2,8);
+
+    // create room doc
+    const roomRef = db.collection('rooms').doc(code);
+    const exists = (await roomRef.get()).exists;
+    if(exists){alert('Sala já existe. Escolha outro código ou entre nela.');return}
+
+    await roomRef.set({
+      host: name,
+      status: 'waiting', // waiting | playing | finished
+      masterMove: null,
+      movesCount: 0,
+      intervalMs: 2500,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    joinRoomAs(code, name, true);
+  });
+
+  // Join room
+  joinBtn.addEventListener('click', ()=>{
+    const name = nameInput.value.trim();
+    const code = roomInput.value.trim();
+    if(!name || !code){alert('Preencha nome e código');return}
+    joinRoomAs(code, name, false);
+  });
+
+  // Leave room
+  leaveBtn.addEventListener('click', async ()=>{
+    if(!currentRoomId || !localPlayer) return;
+    const roomRef = db.collection('rooms').doc(currentRoomId);
+    const roomSnap = await roomRef.get();
+    const room = roomSnap.data();
+    if(room && room.status === 'playing'){alert('Não é possível sair durante uma partida. Aguarde o fim.');return}
+
+    await db.collection('rooms').doc(currentRoomId).collection('players').doc(currentPlayerId).delete();
+    cleanupLocal();
+    log('Você saiu da sala');
+  });
+
+  // Start game (host only)
+  startBtn.addEventListener('click', async ()=>{
+    if(!currentRoomId) return;
+    if(!isHost) return alert('Somente o host pode iniciar');
+    const roomRef = db.collection('rooms').doc(currentRoomId);
+    await roomRef.update({status:'playing', masterMove:null, movesCount:0, intervalMs:2500});
+    // initialize players' lives
+    const playersSnap = await roomRef.collection('players').get();
+    const batch = db.batch();
+    playersSnap.forEach(p=>{
+      batch.update(p.ref,{lives:3,alive:true,lastMove:null});
+    });
+    await batch.commit();
+    log('Partida iniciada pelo host');
+  });
+
+  // Restart (host)
+  restartBtn.addEventListener('click', async ()=>{
+    if(!currentRoomId || !isHost) return;
+    const roomRef = db.collection('rooms').doc(currentRoomId);
+    await roomRef.update({status:'waiting', masterMove:null, movesCount:0, intervalMs:2500});
+    const playersSnap = await roomRef.collection('players').get();
+    const batch = db.batch();
+    playersSnap.forEach(p=> batch.update(p.ref,{lives:3,alive:true,lastMove:null}));
+    await batch.commit();
+    log('Partida reiniciada pelo host');
+  });
+
+  // Join logic
+  async function joinRoomAs(code,name,asHost){
+    const roomRef = db.collection('rooms').doc(code);
+    const roomSnap = await roomRef.get();
+    if(!roomSnap.exists){alert('Sala não encontrada');return}
+    const playersRef = roomRef.collection('players');
+    const playersSnap = await playersRef.get();
+    // count players alive or total (exclude host)
+    if(playersSnap.size >= 4){alert('Sala cheia (4 jogadores)');return}
+
+    // create player doc
+    const playerDoc = playersRef.doc();
+    await playerDoc.set({
+      name:name,
+      lives:3,
+      alive:true,
+      joinedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      lastMove:null
+    });
+
+    currentRoomId = code;
+    currentPlayerId = playerDoc.id;
+    isHost = asHost;
+    localPlayer = {id:currentPlayerId,name};
+
+    roomLabel.textContent = code;
+    roomStatus.textContent = 'Conectado';
+    leaveBtn.disabled = false;
+    startBtn.disabled = !isHost;
+    restartBtn.disabled = !isHost;
+
+    listenRoom(roomRef);
+    listenPlayers(roomRef);
+
+    // clean up on tab close if allowed (only when not playing)
+    window.addEventListener('beforeunload', async (e)=>{
+      const r = await roomRef.get();
+      if(r.exists && r.data().status === 'playing'){
+        e.preventDefault();
+        e.returnValue = '';
+      } else {
+        await playersRef.doc(currentPlayerId).delete();
+      }
+    });
+
+    log('Você entrou na sala ' + code);
+  }
+
+  // Listeners
+  function listenRoom(roomRef){
+    if(unsubRoom) unsubRoom();
+    unsubRoom = roomRef.onSnapshot(snap=>{
+      const data = snap.data();
+      if(!data) return;
+      roomStatus.textContent = data.status;
+      masterMoveEl.textContent = 'Mestre: ' + (data.masterMove || '-');
+
+      // ✅ Detectar mudança de movimento do mestre e executar janela de input para TODOS os jogadores
+      if (data.status === 'playing' && data.masterMove) {
+        if (window._lastMasterMove !== data.masterMove || window._lastMoveCount !== data.movesCount) {
+          window._lastMasterMove = data.masterMove;
+          window._lastMoveCount = data.movesCount;
+
+          // Executa a janela de reação localmente em todos os clientes
+          if (!isHost) {
+          runPlayerWindow(data.masterMove, data.intervalMs || 2500);
+        }
+        }
+      }
+      movesCountEl.textContent = 'Movs: ' + (data.movesCount||0);
+
+      // if playing -> start master loop on client-side only for host
+      if(data.status === 'playing'){
+        // host will run the master ticker
+        if(isHost){ startMasterLoop(roomRef); }
+      } else {
+        stopLocalMasterLoop();
+      }
+
+      // on finished => allow leaving
+      if(data.status === 'finished'){
+        // enable leave for all
+      }
+    });
+  }
+
+  // players listener
+  function listenPlayers(roomRef){
+    if(unsubPlayers) unsubPlayers();
+    unsubPlayers = roomRef.collection('players').onSnapshot(snapshot=>{
+      playersList.innerHTML = '';
+      stage.innerHTML = '';
+      let aliveCount = 0;
+      snapshot.forEach(doc=>{
+        const p = doc.data();
+        const id = doc.id;
+        const el = document.createElement('div'); el.className='player';
+        el.innerHTML = `<div class='meta'><div style='font-weight:700'>${p.name}</div><div style='font-size:12px;color:var(--muted)'>vidas: ${p.lives}</div></div><div><span class='badge'>${id===currentPlayerId? 'Você' : (doc.data().name === roomRef._delegate ? 'Host' : '')}</span></div>`;
+        playersList.appendChild(el);
+
+        // stage characters
+        const ch = document.createElement('div'); ch.className='char'+(p.alive? '':' dead');
+        ch.innerHTML = `<div style='font-weight:700'>${p.name}</div><div style='font-size:12px;color:var(--muted)'>${p.alive? 'Jogando':'Morto'}</div>`;
+        stage.appendChild(ch);
+
+        if(p.alive) aliveCount++;
+      });
+
+      // check end condition
+      if(snapshot.size>0){
+        // count alive players
+        if(aliveCount <= 1){
+          // finish game
+          roomRef.update({status:'finished'});
+          log('Partida finalizada. Vencedor: ' + (aliveCount===1? 'Verifique UI' : 'Empate'));
+          stopLocalMasterLoop();
+        }
+      }
+    });
+  }
+
+  // --- MASTER LOOP (host only) ---
+  let masterIntervalHandle = null;
+  let masterTimerCount = 0;
+  let lastMasterTimestamp = 0;
+
+  function startMasterLoop(roomRef){
+    stopLocalMasterLoop();
+    roomRef.get().then(snap=>{
+      const data = snap.data();
+      if(!data) return;
+      let intervalMs = data.intervalMs || 2500;
+      masterIntervalHandle = setInterval(async ()=>{
+        // choose move, update room doc
+        const move = rndMove();
+        const r = await roomRef.get();
+        const d = r.data();
+        const nextMovesCount = (d.movesCount||0) + 1;
+        // reduce interval a cada 10 movimentos
+        let newInterval = d.intervalMs || 2500;
+        if(nextMovesCount % 10 === 0) newInterval = Math.max(600, Math.floor(newInterval * 0.8));
+        await roomRef.update({masterMove:move, movesCount: nextMovesCount, intervalMs: newInterval, lastMasterAt: firebase.firestore.FieldValue.serverTimestamp()});
+        log('Mestre fez: ' + move + ' (mov ' + nextMovesCount + ')');
+
+        // start move timer for players (2.5s or current interval)
+        runPlayerWindow(move, Math.max(2500,newInterval));
+
+        // if interval changed, restart local interval
+        if(newInterval !== intervalMs){
+          clearInterval(masterIntervalHandle);
+          startMasterLoop(roomRef);
+        }
+      }, intervalMs);
+    });
+  }
+
+  function stopLocalMasterLoop(){
+    if(masterIntervalHandle) clearInterval(masterIntervalHandle);
+    masterIntervalHandle = null;
+  }
+
+  // When master makes a move, players have X ms to respond. We'll store each player's lastMove in their doc and evaluate when time's up.
+  function runPlayerWindow(expectedMove, windowMs){
+    timerEl.textContent = 'Tempo: ' + (windowMs/1000).toFixed(2) + 's';
+    const end = Date.now() + windowMs;
+    // listen to keyboard during window
+    const buffer = {};
+
+    function onKey(e){
+      const k = e.key.toLowerCase();
+      const map = {w:'UP',s:'DOWN',a:'LEFT',d:'RIGHT'};
+      if(!map[k]) return;
+      // write player's lastMove to firestore
+      if(!currentRoomId || !currentPlayerId) return;
+      db.collection('rooms').doc(currentRoomId).collection('players').doc(currentPlayerId).update({lastMove:map[k], lastMoveAt: firebase.firestore.FieldValue.serverTimestamp()});
+      log('Você pressionou: ' + map[k]);
+    }
+    window.addEventListener('keydown', onKey);
+
+    // after windowMs, evaluate all players
+    setTimeout(async ()=>{
+      window.removeEventListener('keydown', onKey);
+      timerEl.textContent = 'Tempo: 0s';
+      // snapshot players and evaluate
+      const roomPlayers = await db.collection('rooms').doc(currentRoomId).collection('players').get();
+      const batch = db.batch();
+      const now = Date.now();
+      let deathsThisRound = [];
+      roomPlayers.forEach(pdoc=>{
+        const p = pdoc.data();
+        if(!p.alive) return;
+        const lastMove = p.lastMove || null;
+        if(lastMove !== expectedMove){
+          const newLives = (p.lives||0) - 1;
+          batch.update(pdoc.ref,{lives:newLives});
+          log(`${p.name} errou (esperado ${expectedMove}) - vidas: ${newLives}`);
+          if(newLives <= 0){
+            batch.update(pdoc.ref,{alive:false});
+            deathsThisRound.push(p.name);
+          }
+        } else {
+          log(`${p.name} acertou!`);
+        }
+        // clear lastMove for next round
+        batch.update(pdoc.ref,{lastMove:null});
+      });
+      await batch.commit();
+
+      // If multiple players died at the same evaluation and it's last survivors, handle tie
+      if(deathsThisRound.length > 1){
+        log('Vários jogadores morreram no mesmo tempo: ' + deathsThisRound.join(', '));
+      }
+
+    }, windowMs + 50);
+  }
+
+  // Clean up local state after leaving
+  function cleanupLocal(){
+    if(unsubRoom) unsubRoom(); if(unsubPlayers) unsubPlayers(); unsubRoom=null;unsubPlayers=null;
+    currentRoomId=null;currentPlayerId=null;isHost=false;localPlayer=null;
+    roomLabel.textContent='Nenhuma';roomStatus.textContent='-';playersList.innerHTML='';stage.innerHTML='';leaveBtn.disabled=true;startBtn.disabled=true;restartBtn.disabled=true;
+  }
+
+  // Simple helper to show initial demo room if you want to test quickly
+  // Keyboard listener while not in window: update UI only
+  document.addEventListener('keydown', (e)=>{
+    // only send lastMove when window running; handled per runPlayerWindow
+  });
+
+  // --- end script ---
+  </script>
+</body>
+</html>

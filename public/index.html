@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Ritmo Maestro</title>
+<style>
+body{
+  background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color:#fff;
+  font-family:'Segoe UI', sans-serif;
+  text-align:center;
+  padding:20px;
+  margin:0;
+}
+h1{
+  font-size:3em;
+  margin:10px;
+  text-shadow:3px 3px 6px rgba(0,0,0,0.3);
+}
+input{
+  padding:12px 20px;
+  margin:5px;
+  border:none;
+  border-radius:25px;
+  font-size:16px;
+  width:200px;
+  box-shadow:0 4px 6px rgba(0,0,0,0.2);
+}
+button{
+  padding:12px 30px;
+  margin:10px;
+  border:none;
+  border-radius:25px;
+  background:#4CAF50;
+  color:white;
+  font-size:18px;
+  font-weight:bold;
+  cursor:pointer;
+  box-shadow:0 4px 6px rgba(0,0,0,0.2);
+  transition:all 0.3s;
+}
+button:hover{
+  background:#45a049;
+  transform:translateY(-2px);
+  box-shadow:0 6px 12px rgba(0,0,0,0.3);
+}
+canvas{
+  background:#1a1a2e;
+  border:4px solid #fff;
+  border-radius:15px;
+  margin-top:20px;
+  box-shadow:0 8px 16px rgba(0,0,0,0.4);
+}
+#hud{
+  margin-top:20px;
+  background:rgba(0,0,0,0.3);
+  padding:15px;
+  border-radius:15px;
+  display:inline-block;
+}
+#status{
+  font-size:1.5em;
+  font-weight:bold;
+  margin:10px;
+  text-shadow:2px 2px 4px rgba(0,0,0,0.5);
+}
+.info{
+  background:rgba(255,255,255,0.1);
+  padding:10px;
+  border-radius:10px;
+  margin-top:10px;
+  font-size:0.9em;
+}
+</style>
+</head>
+<body>
+<h1>🎵 Ritmo Maestro 🎵</h1>
+<div class="info">
+  🎮 Use as teclas W, A, S, D para jogar | 🎯 Repita a sequência do Maestro | ❤️ Você tem 3 vidas
+</div>
+<div>
+  <input id="name" placeholder="Seu nome"/>
+  <input id="room" placeholder="Nome da sala" value="sala1"/>
+  <button id="join">🎮 Entrar no Jogo</button>
+</div>
+<div id="hud" style="display:none">
+  <p id="status">Aguardando jogadores...</p>
+</div>
+<canvas id="game" width="800" height="500"></canvas>
+<script src="client.js"></script>
+</body>
+</html>
