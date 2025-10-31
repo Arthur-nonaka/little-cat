@@ -60,52 +60,94 @@ wss.on("connection", (ws) => {
       const room = rooms[roomId];
       if (!room || room.state !== "playerTurn") return;
       
-      const playerArray = Array.from(room.players.values()).filter(p => p.lives > 0);
-      const currentPlayer = playerArray[room.currentPlayerIndex];
-      
-      // Só aceita input do jogador da vez
-      if (currentPlayer.id !== playerId) return;
-      
       const player = room.players.get(playerId);
-      const expected = room.sequence[room.currentInputIndex];
+      if (!player || player.lives <= 0) return;
+      
+      // Initialize player inputs if not exists
+      if (!room.playerInputs.has(playerId)) {
+        room.playerInputs.set(playerId, []);
+      }
+      
+      // Check if player already made an error this turn
+      if (!room.playerErrors) {
+        room.playerErrors = new Map();
+      }
+      
+      const playerSequence = room.playerInputs.get(playerId);
+      const inputIndex = playerSequence.length;
+      const expected = room.sequence[inputIndex];
       const correct = data.dir === expected;
+      
+      const alreadyErrored = room.playerErrors.get(playerId) || false;
+
+      // Check timing
+      let timingCorrect = true;
+      if (room.rhythmTimer && !alreadyErrored) {
+        const currentTime = Date.now();
+        const timeSinceStart = currentTime - room.rhythmTimer.startTime;
+        const expectedMoveTime = inputIndex * room.rhythmTimer.moveInterval;
+        const timeDifference = timeSinceStart - expectedMoveTime;
+        
+        // Timing window: allows pressing slightly before or after the maestro move
+        const earlyTolerance = 200; // Can press 200ms before
+        const lateTolerance = 400;  // Can press 400ms after
+        
+        if (timeDifference < -earlyTolerance) {
+          // Too early
+          timingCorrect = false;
+          broadcast(roomId, {
+            type: "timingError",
+            name: player.name,
+            error: "early"
+          });
+        } else if (timeDifference > lateTolerance) {
+          // Too late
+          timingCorrect = false;
+          broadcast(roomId, {
+            type: "timingError",
+            name: player.name,
+            error: "late"
+          });
+        }
+      }
+
+      playerSequence.push(data.dir);
 
       // Feedback de acerto/erro
       broadcast(roomId, { 
         type: "playerMove", 
         id: playerId, 
         dir: data.dir, 
-        correct,
+        correct: correct && timingCorrect,
         name: player.name 
       });
 
-      if (!correct) {
+      // Only lose life once per turn
+      if ((!correct || !timingCorrect) && !alreadyErrored) {
         player.lives--;
+        room.playerErrors.set(playerId, true); // Mark that player made an error this turn
+        
         if (player.lives <= 0) {
           player.ws.send(JSON.stringify({ type: "dead" }));
           broadcast(roomId, { type: "playerDied", name: player.name });
         }
       }
 
-      room.currentInputIndex++;
-      
-      // Se completou a sequência
-      if (room.currentInputIndex >= room.sequence.length) {
-        room.currentPlayerIndex++;
-        
-        // Se todos jogaram
+      // Check if this player completed the sequence
+      if (playerSequence.length >= room.sequence.length) {
+        // Check if all alive players have completed their sequences
         const alivePlayers = Array.from(room.players.values()).filter(p => p.lives > 0);
-        if (room.currentPlayerIndex >= alivePlayers.length) {
+        const allCompleted = alivePlayers.every(p => {
+          const inputs = room.playerInputs.get(p.id);
+          return inputs && inputs.length >= room.sequence.length;
+        });
+
+        if (allCompleted) {
           if (alivePlayers.length === 0) {
             gameOver(roomId);
           } else {
             nextRound(roomId);
           }
-        } else {
-          // Próximo jogador
-          room.currentInputIndex = 0;
-          const nextPlayer = alivePlayers[room.currentPlayerIndex];
-          broadcast(roomId, { type: "nextPlayer", name: nextPlayer.name });
         }
       }
 
@@ -141,26 +183,36 @@ function maestroShow(roomId) {
   const room = rooms[roomId];
   if (!room) return;
 
-  room.sequence.push(DIRECTIONS[Math.floor(Math.random() * 4)]);
+  // Generate new sequence (not adding to old one)
+  const sequenceLength = Math.min(3 + Math.floor(room.turn / 2), 10); // Increases slower: 3, 3, 4, 4, 5, 5, ...
+  room.sequence = [];
+  for (let i = 0; i < sequenceLength; i++) {
+    room.sequence.push(DIRECTIONS[Math.floor(Math.random() * 4)]);
+  }
+  
   broadcast(roomId, { type: "newTurn", turn: room.turn + 1 });
 
   let i = 0;
+  // Slower timing between moves (800ms base, decreases slower)
+  const baseInterval = Math.max(800 - room.turn * 30, 500);
+  
   const interval = setInterval(() => {
     const dir = room.sequence[i];
-    broadcast(roomId, { type: "maestroMove", dir });
+    broadcast(roomId, { type: "maestroMove", dir, index: i });
     i++;
     if (i >= room.sequence.length) {
       clearInterval(interval);
-      setTimeout(() => startPlayerTurn(roomId), 1000);
+      setTimeout(() => startPlayerTurn(roomId), 1500); // More time before player turn
     }
-  }, Math.max(400 - room.sequence.length * 20, 150));
+  }, baseInterval);
 }
 
 function startPlayerTurn(roomId) {
   const room = rooms[roomId];
   room.state = "playerTurn";
   room.currentInputIndex = 0;
-  room.currentPlayerIndex = 0;
+  room.playerInputs = new Map(); // Track each player's inputs
+  room.playerErrors = new Map(); // Track errors per player this turn
   
   const alivePlayers = Array.from(room.players.values()).filter(p => p.lives > 0);
   if (alivePlayers.length === 0) {
@@ -168,8 +220,80 @@ function startPlayerTurn(roomId) {
     return;
   }
   
-  const firstPlayer = alivePlayers[0];
-  broadcast(roomId, { type: "playerTurn", name: firstPlayer.name });
+  // Calculate timing window (increases with sequence length)
+  const baseInterval = Math.max(800 - room.turn * 30, 500);
+  const timingWindow = baseInterval * room.sequence.length;
+  const moveInterval = baseInterval;
+  
+  broadcast(roomId, { 
+    type: "playerTurn", 
+    sequence: room.sequence,
+    timingWindow: timingWindow
+  });
+  
+  // Start rhythm checking timer
+  room.rhythmTimer = {
+    startTime: Date.now(),
+    moveInterval: moveInterval,
+    lastCheckIndex: 0
+  };
+  
+  // Maestro shows the sequence again while players play
+  let i = 0;
+  const maestroInterval = setInterval(() => {
+    const dir = room.sequence[i];
+    broadcast(roomId, { type: "maestroMove", dir, index: i });
+    i++;
+    if (i >= room.sequence.length) {
+      clearInterval(maestroInterval);
+    }
+  }, baseInterval);
+  
+  // Check for missed inputs after the timing window
+  setTimeout(() => {
+    checkMissedInputs(roomId);
+  }, timingWindow + 1000);
+}
+
+function checkMissedInputs(roomId) {
+  const room = rooms[roomId];
+  if (!room || room.state !== "playerTurn") return;
+  
+  const alivePlayers = Array.from(room.players.values()).filter(p => p.lives > 0);
+  
+  alivePlayers.forEach(player => {
+    const playerInputs = room.playerInputs.get(player.id) || [];
+    const missedMoves = room.sequence.length - playerInputs.length;
+    const alreadyErrored = room.playerErrors.get(player.id) || false;
+    
+    if (missedMoves > 0 && !alreadyErrored) {
+      // Player missed some moves - lose life for not keeping rhythm (only if didn't already lose life this turn)
+      player.lives--;
+      broadcast(roomId, {
+        type: "rhythmMiss",
+        name: player.name,
+        missedMoves: missedMoves
+      });
+      
+      if (player.lives <= 0) {
+        player.ws.send(JSON.stringify({ type: "dead" }));
+        broadcast(roomId, { type: "playerDied", name: player.name });
+      }
+    }
+  });
+  
+  // Check if game should continue
+  const stillAlive = Array.from(room.players.values()).filter(p => p.lives > 0);
+  if (stillAlive.length === 0) {
+    gameOver(roomId);
+  } else {
+    nextRound(roomId);
+  }
+  
+  broadcast(roomId, {
+    type: "updatePlayers",
+    players: Array.from(room.players.values()).map(p => ({ id: p.id, lives: p.lives, name: p.name }))
+  });
 }
 
 function nextRound(roomId) {
